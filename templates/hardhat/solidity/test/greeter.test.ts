@@ -1,12 +1,12 @@
 import { expect } from 'chai';
-import { getWallet, deployContract, LOCAL_RICH_WALLETS } from '../deploy/utils';
+import { deployContract, getRichWallets } from '../deploy/utils';
 
 describe('Greeter', function () {
   it("Should return the new greeting once it's changed", async function () {
-    const wallet = getWallet(LOCAL_RICH_WALLETS[0].privateKey);
+    const wallet = (await getRichWallets())[0];
 
     const greeting = "Hello world!";
-    const greeter = await deployContract("Greeter", [greeting], { wallet, silent: true });
+    const greeter = await deployContract("Greeter", [greeting], { wallet, doLog: false });
 
     expect(await greeter.greet()).to.eq(greeting);
 

@@ -1,6 +1,6 @@
 import * as hre from "hardhat";
-import { getWallet } from "./utils";
 import { ethers } from "ethers";
+import { getDefaultWallet } from "./utils";
 
 // Address of the contract to interact with
 const CONTRACT_ADDRESS = "";
@@ -17,7 +17,7 @@ export default async function () {
   const contract = new ethers.Contract(
     CONTRACT_ADDRESS,
     contractArtifact.abi,
-    getWallet() // Interact with the contract on behalf of this wallet
+    await getDefaultWallet() // Interact with the contract on behalf of this wallet
   );
 
   // Run contract read function

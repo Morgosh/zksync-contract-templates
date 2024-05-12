@@ -1,43 +1,97 @@
-import { Provider, Wallet } from "zksync-ethers";
-import * as hre from "hardhat";
-import { Deployer } from "@matterlabs/hardhat-zksync";
-import dotenv from "dotenv";
 import { ethers } from "ethers";
-
 import "@matterlabs/hardhat-zksync-node/dist/type-extensions";
 import "@matterlabs/hardhat-zksync-verify/dist/src/type-extensions";
+import "@nomicfoundation/hardhat-ethers";
 
-// Load env file
-dotenv.config();
+import hre, {ethers as hardhatEthers} from "hardhat";
+import { Deployer } from "@matterlabs/hardhat-zksync";
 
-export const getProvider = () => {
-  const rpcUrl = hre.network.config.url;
-  if (!rpcUrl) throw `⛔️ RPC URL wasn't found in "${hre.network.name}"! Please add a "url" field to the network config in hardhat.config.ts`;
-  
-  // Initialize zkSync Provider
-  const provider = new Provider(rpcUrl);
+import { Provider, Wallet } from "zksync-ethers";
 
-  return provider;
+type DeployContractOptions = {
+  /**
+   * If true, the deployment process will not print any logs
+   */
+  doLog?: boolean
+  /**
+   * If true, the contract will not be verified on Block Explorer
+   */
+  verify?: boolean
+  /**
+   * If specified, the contract will be deployed using this wallet
+   */ 
+  wallet?: Wallet | any // hardhatEthers.Signer
+  /*
+  * If specified, the contract will be deployed with the specified libraries
+  */
+  libraries?: any
 }
 
-export const getWallet = (privateKey?: string) => {
-  if (!privateKey) {
-    // Get wallet private key from .env file
-    if (!process.env.WALLET_PRIVATE_KEY) throw "⛔️ Wallet private key wasn't found in .env file!";
+export const isZkSyncNetwork = () => {
+  try {
+    // make sure its not undefined
+    if(hre.network.config.zksync) {
+      return true 
+    }
+  }
+  catch (error) {
+    return false
+  }
+  return false
+}
+
+
+export const deployContractZkSync = async (contractArtifactName: string, constructorArguments?: any[], options?: DeployContractOptions) => {
+  const log = (message: string) => {
+    if (options?.doLog) console.log(message);
+  }
+  const walletZkSync = !options?.wallet ? await getDefaultWallet() : options.wallet
+
+  log(`\nStarting deployment process of "${contractArtifactName}"...`);
+  
+  const wallet = options?.wallet 
+  const deployer = new Deployer(hre, walletZkSync as Wallet);
+  const artifact = await deployer.loadArtifact(contractArtifactName).catch((error) => {
+    if (error?.message?.includes(`Artifact for contract "${contractArtifactName}" not found.`)) {
+      console.error(error.message);
+      throw `⛔️ Please make sure you have compiled your contracts or specified the correct contract name!`;
+    } else {
+      throw error;
+    }
+  });
+
+  // Estimate contract deployment fee
+  const deploymentFee = await deployer.estimateDeployFee(artifact, constructorArguments || []);
+  log(`Estimated deployment cost: ${ethers.formatEther(deploymentFee)} ETH`);
+
+  // Check if the wallet has enough balance
+  //await verifyEnoughBalance(wallet, deploymentFee);
+
+  // Deploy the contract to zkSync
+  const contract = await deployer.deploy(artifact, constructorArguments);
+  const address = await contract.getAddress();
+  const constructorArgs = contract.interface.encodeDeploy(constructorArguments);
+  const fullContractSource = `${artifact.sourceName}:${artifact.contractName}`;
+
+  
+  // Display contract deployment info
+  log(`\n"${artifact.contractName}" was successfully deployed:`);
+  console.log(`Deployed ${contractArtifactName} address: ${address}`);
+  log(` - Contract source: ${fullContractSource}`);
+  log(` - Encoded constructor arguments: ${constructorArgs}\n`);
+
+  // @ts-ignore
+  if (options?.verify && hre.network.config && hre.network.config.verifyURL) {
+    log(`Requesting contract verification...`);
+    await verifyContract({
+      address,
+      contract: fullContractSource,
+      constructorArguments: constructorArgs,
+      bytecode: artifact.bytecode,
+    });
   }
 
-  const provider = getProvider();
-  
-  // Initialize zkSync Wallet
-  const wallet = new Wallet(privateKey ?? process.env.WALLET_PRIVATE_KEY!, provider);
-
-  return wallet;
-}
-
-export const verifyEnoughBalance = async (wallet: Wallet, amount: bigint) => {
-  // Check if the wallet has enough balance
-  const balance = await wallet.getBalance();
-  if (balance < amount) throw `⛔️ Wallet balance is too low! Required ${ethers.formatEther(amount)} ETH, but current ${wallet.address} balance is ${ethers.formatEther(balance)} ETH`;
+  return contract;
 }
 
 /**
@@ -56,75 +110,73 @@ export const verifyContract = async (data: {
   return verificationRequestId;
 }
 
-type DeployContractOptions = {
-  /**
-   * If true, the deployment process will not print any logs
-   */
-  silent?: boolean
-  /**
-   * If true, the contract will not be verified on Block Explorer
-   */
-  noVerify?: boolean
-  /**
-   * If specified, the contract will be deployed using this wallet
-   */ 
-  wallet?: Wallet
-}
-export const deployContract = async (contractArtifactName: string, constructorArguments?: any[], options?: DeployContractOptions) => {
-  const log = (message: string) => {
-    if (!options?.silent) console.log(message);
-  }
-
-  log(`\nStarting deployment process of "${contractArtifactName}"...`);
-  
-  const wallet = options?.wallet ?? getWallet();
-  const deployer = new Deployer(hre, wallet);
-  const artifact = await deployer.loadArtifact(contractArtifactName).catch((error) => {
-    if (error?.message?.includes(`Artifact for contract "${contractArtifactName}" not found.`)) {
-      console.error(error.message);
-      throw `⛔️ Please make sure you have compiled your contracts or specified the correct contract name!`;
+export const deployContract = async (contractArtifactName: string, constructorArguments: any[] = [], options?: DeployContractOptions) => {
+  if(isZkSyncNetwork()){
+    return deployContractZkSync(contractArtifactName, constructorArguments, options)
+  } else {
+    let factory
+    if(options?.libraries){
+      factory = await hre.ethers.getContractFactory(contractArtifactName, {
+        libraries: options.libraries
+      })
     } else {
-      throw error;
+      factory = await hre.ethers.getContractFactory(contractArtifactName)
     }
-  });
 
-  // Estimate contract deployment fee
-  const deploymentFee = await deployer.estimateDeployFee(artifact, constructorArguments || []);
-  log(`Estimated deployment cost: ${ethers.formatEther(deploymentFee)} ETH`);
-
-  // Check if the wallet has enough balance
-  await verifyEnoughBalance(wallet, deploymentFee);
-
-  // Deploy the contract to zkSync
-  const contract = await deployer.deploy(artifact, constructorArguments);
-  const address = await contract.getAddress();
-  const constructorArgs = contract.interface.encodeDeploy(constructorArguments);
-  const fullContractSource = `${artifact.sourceName}:${artifact.contractName}`;
-
-  // Display contract deployment info
-  log(`\n"${artifact.contractName}" was successfully deployed:`);
-  log(` - Contract address: ${address}`);
-  log(` - Contract source: ${fullContractSource}`);
-  log(` - Encoded constructor arguments: ${constructorArgs}\n`);
-
-  if (!options?.noVerify && hre.network.config.verifyURL) {
-    log(`Requesting contract verification...`);
-    await verifyContract({
-      address,
-      contract: fullContractSource,
-      constructorArguments: constructorArgs,
-      bytecode: artifact.bytecode,
-    });
+    const contract = await factory.deploy(...constructorArguments)
+    await contract.waitForDeployment()
+    return contract
   }
-
-  return contract;
 }
 
-/**
- * Rich wallets can be used for testing purposes.
- * Available on zkSync In-memory node and Dockerized node.
- */
-export const LOCAL_RICH_WALLETS = [
+export async function getDefaultWallet() {
+  const signers = await hardhatEthers.getSigners()
+  if(isZkSyncNetwork()){
+    // now if signers[0] matches process.env.PRIVATE_KEY then we return that, otherwise we return the first rich wallet
+    if (process.env.PRIVATE_KEY) {
+      const privateKey = process.env.PRIVATE_KEY;
+      const wallet = new Wallet(privateKey, getzkProvider());
+      if (signers && signers.length > 0 && signers[0].address === wallet.address) {
+        return wallet
+      }
+    }
+    return new Wallet(ZKSYNC_LOCAL_RICH_WALLETS[0].privateKey, getzkProvider());
+  } else {
+    return signers[0]
+  }
+}
+
+export async function getRichWallets() {
+  if(isZkSyncNetwork()){
+    return ZKSYNC_LOCAL_RICH_WALLETS.map((wallet) => new Wallet(wallet.privateKey, getzkProvider()))
+  } else {
+    return await hardhatEthers.getSigners()
+  }
+}
+
+
+export const getzkProvider = () => {
+  const rpcUrl = hre.network.config.url;
+  if (!rpcUrl) throw `⛔️ RPC URL wasn't found in "${hre.network.name}"! Please add a "url" field to the network config in hardhat.config.ts`;
+  // Initialize zkSync Provider
+  //const provider = ethers.getDefaultProvider(rpcUrl);
+  const provider = new Provider(hre.network.config.url)
+  return provider;
+}
+
+export const getProvider = () => {
+  if(isZkSyncNetwork()){
+    const rpcUrl = hre.network.config.url;
+    if (!rpcUrl) throw `⛔️ RPC URL wasn't found in "${hre.network.name}"! Please add a "url" field to the network config in hardhat.config.ts`;
+    //const provider = new Provider(hre.network.config.url)
+    const provider = ethers.getDefaultProvider(rpcUrl);
+    return provider;
+  } else {
+    return hre.ethers.provider
+  }
+}
+
+export const ZKSYNC_LOCAL_RICH_WALLETS = [
   {
     address: "0x36615Cf349d7F6344891B1e7CA7C72883F5dc049",
     privateKey: "0x7726827caac94a7f9e1b160f7ea819f172f7b6f9d2a97f992c38edeab82d4110"
