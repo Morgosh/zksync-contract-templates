@@ -1,18 +1,20 @@
 import { expect } from 'chai';
 import { Contract, Wallet } from "zksync-ethers";
-import { getWallet, deployContract, LOCAL_RICH_WALLETS } from '../../deploy/utils';
+import { deployContract, getRichWallets } from '../../deploy/utils';
+import "@nomicfoundation/hardhat-ethers";
 import * as ethers from "ethers";
 
 describe("MyERC20Token", function () {
   let tokenContract: Contract;
-  let ownerWallet: Wallet;
-  let userWallet: Wallet;
+  let ownerWallet: Wallet | any; // HardhatEthersSigner
+  let userWallet: Wallet | any;; // HardhatEthersSigner
 
   before(async function () {
-    ownerWallet = getWallet(LOCAL_RICH_WALLETS[0].privateKey);
-    userWallet = getWallet(LOCAL_RICH_WALLETS[1].privateKey);
+    const richWallets = await getRichWallets();
+    ownerWallet = richWallets[0]
+    userWallet = richWallets[1]
 
-    tokenContract = await deployContract("MyERC20Token", [], { wallet: ownerWallet, silent: true });
+    tokenContract = await deployContract("MyERC20Token", [], { wallet: ownerWallet, doLog: false });
   });
 
   it("Should have correct initial supply", async function () {

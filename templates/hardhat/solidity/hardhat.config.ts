@@ -1,5 +1,5 @@
 import { HardhatUserConfig } from "hardhat/config";
-
+import "@nomicfoundation/hardhat-ethers";
 import "@matterlabs/hardhat-zksync";
 
 const config: HardhatUserConfig = {
@@ -33,9 +33,10 @@ const config: HardhatUserConfig = {
       ethNetwork: "localhost", // in-memory node doesn't support eth node; removing this line will cause an error
       zksync: true,
     },
-    hardhat: {
-      zksync: true,
+    zkHardhat: {
+      url: "",
     },
+    hardhat: {},
   },
   zksolc: {
     version: "latest",
@@ -46,6 +47,13 @@ const config: HardhatUserConfig = {
   },
   solidity: {
     version: "0.8.17",
+    settings: {
+      optimizer: {
+        enabled: true,
+        runs: 200,
+      },
+      viaIR: true
+    },
   },
 };
 

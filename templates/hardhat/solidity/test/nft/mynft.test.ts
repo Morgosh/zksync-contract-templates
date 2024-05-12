@@ -1,20 +1,21 @@
 import { expect } from 'chai';
 import { Contract, Wallet } from "zksync-ethers";
-import { getWallet, deployContract, LOCAL_RICH_WALLETS } from '../../deploy/utils';
+import { deployContract, getRichWallets } from '../../deploy/utils';
 
 describe("MyNFT", function () {
   let nftContract: Contract;
-  let ownerWallet: Wallet;
-  let recipientWallet: Wallet;
+  let ownerWallet: Wallet | any; // HardhatEthersSigner
+  let recipientWallet: Wallet | any;; // HardhatEthersSigner
 
   before(async function () {
-    ownerWallet = getWallet(LOCAL_RICH_WALLETS[0].privateKey);
-    recipientWallet = getWallet(LOCAL_RICH_WALLETS[1].privateKey);
+    const richWallets = await getRichWallets();
+    ownerWallet = richWallets[0]
+    recipientWallet = richWallets[1]
 
     nftContract = await deployContract(
       "MyNFT",
       ["MyNFTName", "MNFT", "https://mybaseuri.com/token/"],
-      { wallet: ownerWallet, silent: true }
+      { wallet: ownerWallet, doLog: false }
     );
   });
 
