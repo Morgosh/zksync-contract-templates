@@ -48,9 +48,11 @@ export const deployContractZkSync = async (contractArtifactName: string, constru
   const walletZkSync = !options?.wallet ? await getDefaultWallet() : options.wallet
 
   log(`\nStarting deployment process of "${contractArtifactName}"...`);
+
   
   const wallet = options?.wallet 
   const deployer = new Deployer(hre, walletZkSync as Wallet);
+
   const artifact = await deployer.loadArtifact(contractArtifactName).catch((error) => {
     if (error?.message?.includes(`Artifact for contract "${contractArtifactName}" not found.`)) {
       console.error(error.message);
